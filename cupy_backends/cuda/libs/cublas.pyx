@@ -684,6 +684,36 @@ cpdef dznrm2(intptr_t handle, int n, size_t x, int incx, size_t result):
     check_status(status)
 
 
+cpdef srotg(intptr_t handle, size_t a, size_t b, size_t c, size_t s):
+    _setStream(handle)
+    with nogil:
+        status = cublasSrotg(<Handle> handle, <float*>a, <float*>b
+                            <float*>c, <float*>s)
+    check_status(status)
+
+cpdef drotg(intptr_t handle, size_t a, size_t b, size_t c, size_t s):
+    _setStream(handle)
+    with nogil:
+        status = cublasDrotg(<Handle> handle, <double*>a, <double*>b
+                            <double*>c, <double*>s)
+    check_status(status)
+
+cpdef crotg(intptr_t handle, size_t a, size_t b, size_t c, size_t s):
+    _setStream(handle)
+    with nogil:
+        status = cublasCrotg(<Handle> handle, <cuComplex*>a, <cuComplex*>b
+                            <float*>c, <cuComplex*>s)
+    check_status(status)
+
+cpdef zrotg(intptr_t handle, size_t a, size_t b, size_t c, size_t s):
+    _setStream(handle)
+    with nogil:
+        status = cublasZrotg(<Handle> handle, <cuDoubleComplex*>a,
+                            <cuDoubleComplex*>b, <double*>c,
+                            <cuDoubleComplex*>s)
+    check_status(status)
+
+
 cpdef sscal(intptr_t handle, int n, size_t alpha, size_t x, int incx):
     _setStream(handle)
     with nogil:

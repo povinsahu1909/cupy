@@ -333,6 +333,28 @@ def nrm2(x, out=None):
     return out
 
 
+def rotg(a, b):
+    """This function constructs the Givens rotation matrix."""
+    dtype = a.dtype.char
+    if dtype == 'f':
+        func = cublas.srotg
+    elif dtype == 'd':
+        func = cublas.drotg
+    elif dtype == 'F':
+        func = cublas.crotg
+    elif dtype == 'D':
+        func = cublas.zrotg
+    else:
+        raise TypeError('invalid dtype')
+
+    handle = device.get_cublas_handle()
+    # orig_mode = cublas.getPointerMode(handle)
+    try:
+        func(handle, a, b, c, s)
+    finally:
+        cublas.setPointerMode(handle, orig_mode)
+
+
 def scal(a, x):
     """Computes x *= a.
 
