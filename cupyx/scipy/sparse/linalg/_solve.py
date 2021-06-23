@@ -154,8 +154,11 @@ def lsmr(A, b, damp=0.0, atol=1e-6, btol=1e-6, conlim=1e8, maxiter=None):
     A = _interface.aslinearoperator(A)
     b = b.squeeze()
 
+    matvec = A.matvec
+    rmatvec = A.rmatvec
+
     m, n = A.shape
-    minDim = min([m, n])
+    minDim = min(m, n)
 
     if maxiter is None:
         maxiter = minDim
@@ -170,193 +173,95 @@ def lsmr(A, b, damp=0.0, atol=1e-6, btol=1e-6, conlim=1e8, maxiter=None):
         u /= beta
         v = A.rmatvec(u)
         alpha = cublas.nrm2(v)
-
     if alpha > 0:
         v /= alpha
-
-    # Initialize variables for 1st iteration.
-
     itn = 0
     zetabar = alpha * beta
     alphabar = alpha
-    rho = 1
-    rhobar = 1
-    cbar = 1
-    sbar = 0
+    # rho = 1
+    # rhobar = 1
+    # cbar = 1
+    # sbar = 0
+    rho = cupy.array(1.0)
+    rhobar = cupy.array(1.0)
+    cbar = cupy.array(1.0)
+    sbar = cupy.array(0.0)
 
     h = v.copy()
     hbar = cupy.zeros(n)
     x = cupy.zeros(n)
 
-    # Initialize variables for estimation of ||r||.
-
-    betadd = beta
-    betad = 0
-    rhodold = 1
-    tautildeold = 0
-    thetatilde = 0
-    zeta = 0
-    d = 0
-
-    # Initialize variables for estimation of ||A|| and cond(A)
-
-    normA2 = alpha * alpha
     maxrbar = 0
     minrbar = 1e+100
-    normA = alpha
     condA = 1
-    normx = 0
 
-    # Items for use in stopping rules.
-    normb = beta
     istop = 0
     ctol = 0
     if conlim > 0:
         ctol = 1 / conlim
     normr = beta
 
-    # Golub-Kahan process terminates when either alpha or beta is zero.
-    # Reverse the order here from the original matlab code because
-    # there was an error on return when arnorm==0
     normar = alpha * beta
     if normar == 0:
-        return x, istop, itn, normr, normar, normA, condA, normx
-
+        return x
+    theta = 1
+    # var = cupy.array([alphabar, sbar, rho, rhobar, cbar, theta, zetabar])
     # Main iteration loop.
     while itn < maxiter:
         itn = itn + 1
-
-        # Perform the next step of the bidiagonalization to obtain the
-        # next  beta, u, alpha, v.  These satisfy the relations
-        #         beta*u  =  a*v   -  alpha*u,
-        #        alpha*v  =  A'*u  -  beta*v.
-
-        u = A.matvec(v) - alpha * u
-        beta = cublas.nrm2(u)  # norm(u)
+        u = matvec(v) - alpha * u
+        beta = cublas.nrm2(u)
 
         if beta > 0:
             u /= beta
-            v = A.rmatvec(u) - beta * v
+            v = rmatvec(u) - beta * v
             alpha = cublas.nrm2(v)  # norm(v)
             if alpha > 0:
                 v /= alpha
 
-        # At this point, beta = beta_{k+1}, alpha = alpha_{k+1}.
-
-        # Construct rotation Qhat_{k,2k+1}.
-
-        chat, shat, alphahat = _symOrtho(alphabar, damp)
-
-        # Use a plane rotation (Q_i) to turn B_i to R_i
-
-        rhoold = rho
-        c, s, rho = _symOrtho(alphahat, beta)
-        thetanew = s*alpha
-        alphabar = c*alpha
-
-        # Use a plane rotation (Qbar_i) to turn R_i^T to R_i^bar
-
+        # alphahat = _symOrtho1(alphabar, damp)
+        # rhoold = rho
+        # c, s, rho = _symOrtho(alphahat, beta)
+        # thetanew = s*alpha
+        # alphabar = c*alpha
         rhobarold = rhobar
-        zetaold = zeta
-        thetabar = sbar * rho
+        # thetabar = sbar * rho
+        # hbar = h - (thetabar * rho / (rhoold * rhobarold)) * hbar
+        # h = v - (thetanew / rho) * h
+
+        # rho, alphabar, theta, hbar, h = kernel1(alpha, beta, alphabar,
+        #                                         sbar, rho, rhobar, v, hbar, h, damp, var)
+
+        rho, alphabar, theta, hbar, h = kernel1(alpha, beta, alphabar, sbar,
+                                                rho, rhobar, v, hbar, h, damp)
+
         rhotemp = cbar * rho
-        cbar, sbar, rhobar = _symOrtho(cbar * rho, thetanew)
+        cbar, sbar, rhobar = _symOrtho(cbar * rho, theta)
         zeta = cbar * zetabar
-        zetabar = - sbar * zetabar
-
-        # Update h, h_hat, x.
-
-        hbar = h - (thetabar * rho / (rhoold * rhobarold)) * hbar
+        zetabar *= -sbar
         x += (zeta / (rho * rhobar)) * hbar
-        h = v - (thetanew / rho) * h
 
-        # Estimate of ||r||.
+        # cbar, sbar, zetabar, rhobar, x = kernel2(cbar, rho, theta, zetabar, hbar, x)
 
-        # Apply rotation Qhat_{k,2k+1}.
-        betaacute = chat * betadd
-        betacheck = -shat * betadd
-
-        # Apply rotation Q_{k,k+1}.
-        betahat = c * betaacute
-        betadd = -s * betaacute
-
-        # Apply rotation Qtilde_{k-1}.
-        # betad = betad_{k-1} here.
-
-        thetatildeold = thetatilde
-        ctildeold, stildeold, rhotildeold = _symOrtho(rhodold, thetabar)
-        thetatilde = stildeold * rhobar
-        rhodold = ctildeold * rhobar
-        betad = - stildeold * betad + ctildeold * betahat
-
-        # betad   = betad_k here.
-        # rhodold = rhod_k  here.
-
-        tautildeold = (zetaold - thetatildeold * tautildeold) / rhotildeold
-        taud = (zeta - thetatilde * tautildeold) / rhodold
-        d = d + betacheck * betacheck
-        normr = numpy.sqrt(d + (betad - taud)**2 + betadd * betadd)
-
-        # Estimate ||A||.
-        normA2 = normA2 + beta * beta
-        normA = numpy.sqrt(normA2)
-        normA2 = normA2 + alpha * alpha
-
-        # Estimate cond(A).
         maxrbar = max(maxrbar, rhobarold)
         if itn > 1:
             minrbar = min(minrbar, rhobarold)
         condA = max(maxrbar, rhotemp) / min(minrbar, rhotemp)
 
-        # Test for convergence.
-
-        # Compute norms for convergence testing.
-        normar = abs(zetabar)
-        normx = cublas.nrm2(x)
-
-        # Now use these norms to estimate certain other quantities,
-        # some of which will be small near a solution.
-
-        test1 = normr / normb
-        if (normA * normr) != 0:
-            test2 = normar / (normA * normr)
-        else:
-            test2 = numpy.infty
         test3 = 1 / condA
-        t1 = test1 / (1 + normA*normx/normb)
-        rtol = btol + atol*normA*normx/normb
-
-        # The following tests guard against extremely small values of
-        # atol, btol or ctol.  (The user may have set any or all of
-        # the parameters atol, btol, conlim  to 0.)
-        # The effect is equivalent to the normAl tests using
-        # atol = eps,  btol = eps,  conlim = 1/eps.
 
         if itn >= maxiter:
             istop = 7
         if 1 + test3 <= 1:
             istop = 6
-        if 1 + test2 <= 1:
-            istop = 5
-        if 1 + t1 <= 1:
-            istop = 4
-
-        # Allow for tolerances set by the user.
-
         if test3 <= ctol:
             istop = 3
-        if test2 <= atol:
-            istop = 2
-        if test1 <= rtol:
-            istop = 1
-
         if istop > 0:
             break
 
-    # The return type of SciPy is always float64. Therefore, x must be casted.
     x = x.astype(numpy.float64)
 
-    return x, istop, itn, normr, normar, normA, condA, normx
+    return (x, None)
 
 
 def spsolve_triangular(A, b, lower=True, overwrite_A=False, overwrite_b=False,
@@ -687,25 +592,127 @@ def spilu(A, drop_tol=None, fill_factor=None, drop_rule=None,
     return SuperLU(a_inv)
 
 
-def _symOrtho(a, b):
-    """
-    A stable implementation of Givens rotation according to
-    S.-C. Choi, "Iterative Methods for Singular Linear Equations
-      and Least-Squares Problems", Dissertation,
-      http://www.stanford.edu/group/SOL/dissertations/sou-cheng-choi-thesis.pdf
-    """
-    if b == 0:
-        return numpy.sign(a), 0, abs(a)
-    elif a == 0:
-        return 0, numpy.sign(b), abs(b)
-    elif abs(b) > abs(a):
-        tau = a / b
-        s = numpy.sign(b) / numpy.sqrt(1+tau*tau)
-        c = s * tau
-        r = b / s
-    else:
-        tau = b / a
-        c = numpy.sign(a) / numpy.sqrt(1+tau*tau)
-        s = c * tau
-        r = a / c
-    return c, s, r
+# def _symOrtho(a, b):
+#     """
+#     A stable implementation of Givens rotation according to
+#     S.-C. Choi, "Iterative Methods for Singular Linear Equations
+#       and Least-Squares Problems", Dissertation,
+#       http://www.stanford.edu/group/SOL/dissertations/sou-cheng-choi-thesis.pdf
+#     """
+#     if b == 0:
+#         return numpy.sign(a), 0, abs(a)
+#     elif a == 0:
+#         return 0, numpy.sign(b), abs(b)
+#     elif abs(b) > abs(a):
+#         tau = a / b
+#         s = numpy.sign(b) / numpy.sqrt(1+tau*tau)
+#         c = s * tau
+#         r = b / s
+#     else:
+#         tau = b / a
+#         c = numpy.sign(a) / numpy.sqrt(1+tau*tau)
+#         s = c * tau
+#         r = a / c
+#     return c, s, r
+
+
+# @cupy.fuse(kernel_name = 'h')
+# # def kernel1(alpha, beta, var, v, hbar, h, damp):
+# def kernel1(alpha, beta, alphabar, sbar, rho, rhobar, v, hbar, h, damp, var):
+#     rhoold = var[2] # rho
+#     # print(alphabar)
+#     alphahat = _symOrtho1(var[0], damp) # var[0] = alphabar
+#     c, s, var[2] = _symOrtho(alphahat, beta)
+#     theta = s*alpha
+#     var[0] = c*alpha
+#     thetabar = var[1]*var[2] # var[1] = sbar
+#     hbar = h - (thetabar*var[2]/(rhoold * var[3])) * hbar # var[3] = rhobar
+#     h = v - (theta/var[2]) * h
+#
+#     return rho, alphabar, theta, hbar, h
+#
+# @cupy.fuse(kernel_name = 'x')
+# def kernel2(cbar, rho, theta, zetabar, hbar, x):
+#     cbar, sbar, rhobar = _symOrtho(cbar * rho, theta)
+#     zeta = cbar * zetabar
+#     zetabar = -sbar*zetabar
+#     x = x + (zeta/(rho*rhobar)) * hbar
+#
+#     return cbar, sbar, zetabar, rhobar, x
+
+kernel1 =   cupy.ElementwiseKernel(
+    'T alpha, T beta, T alphabar, T sbar, T rho, T rhobar, T v, T hbar, T h, '
+    'T damp',
+    'float64 rh, T alphaba, T theta, T hba, T h1',
+    '''
+    T rhoold = rho;
+    T alphahat = _symOrtho1(alphabar, damp);
+    // T c, T s, rh = _symOrtho(alphahat, beta);
+    float64 c;
+    float64 s;
+    _symOrtho(alphahat, beta, c, s, rh);
+    theta = s*alpha ;
+    alphaba = c*alpha;
+    T thetabar = sbar * rh;
+    hba = h - (thetabar*rh/(rhoold * rhobar)) * hbar;
+    h1 = v - (theta/rh);
+    ''',
+    'kernel_1',
+    preamble='''
+    __device__ float sign(float x) {
+        if (x > 0) return 1;
+        else if (x < 0) return -1;
+        else return 0;
+    }
+
+    __device__ void _symOrtho(float a, float b, float &c, float &s, float &r) {
+        if (b == 0) {
+            c = sign(a);
+            s = 0;
+            r = abs(a);
+            // return sign(a), 0, abs(a);
+        }
+        else if (a == 0){
+            c = 0;
+            s = sign(b);
+            r = abs(b);            
+            //return 0, sign(b), abs(b);
+        }
+        else if (abs(b) > abs(a)){
+            float tau = a / b;
+             s = sign(b) / sqrt(1+tau*tau);
+             c = s * tau;
+             r = b / s;
+            // return c, s, r;
+        }
+        else{
+            float tau = b / a;
+             c = sign(a) / sqrt(1+tau*tau);
+             s = c * tau;
+             r = a / c;
+            // return c, s, r;
+        }   
+    }
+
+    __device__ float _symOrtho1(float a, float b) {
+        if (b == 0) {
+            return abs(a);
+        }
+        else if (a == 0) {
+            return abs(b);
+        }
+        else if (abs(b) > abs(a)){
+            float tau = a / b;
+            float s = sign(b) / sqrt(1+tau*tau);
+            float r = b / s;
+            return r;
+        }
+        else {
+            float tau = b / a;
+            float c = sign(a) / sqrt(1+tau*tau);
+            float r = a / c;
+            return r;
+        }
+    }
+    '''
+)
