@@ -310,3 +310,62 @@ def _make_compute_hu(V):
              n, h.data.ptr, 1, one.ctypes.data, u.data.ptr, 1)
         return h, u
     return compute_hu
+
+
+def bicg(A, b, x0=None, tol=1e-5, maxiter=None, M=None, callback=None,
+         atol=None):
+    A, M, x, b = _make_system(A, M, x0, b)
+    matvec = A.matvec
+    psolve = M.matvec
+
+    n = A.shape[0]
+    if n == 0:
+        return cupy.empty_like(b), 0
+    b_norm = cupy.linalg.norm(b)
+    if b_norm == 0:
+        return b, 0
+    if atol is None:
+        atol = tol * float(b_norm)
+    else:
+        atol = max(float(atol), tol * float(b_norm))
+    if maxiter is None:
+        maxiter = n * 10
+
+    r = b - matvec(x)
+    r1 = r
+    p = cupy.zeros((n, ), dtype=A.dtype)
+    p1 = cupy.zeros((n, ), dtype=A.dtype)
+    rho1 = 1
+    r_norm = cublas.nrm2(r)
+    AT = cupy.transpose(A)
+    matvect = AT.matvec
+
+    iters = 0
+    while True:
+        mr = psolve(r)
+        # rho = cupy.inner(r1, mr)
+        rho = cublas.dotc(r1, mr)
+        beta = rho/rho1
+        p = r + beta*p
+        p1 = r1 + beta*p1
+
+        v = matvec(p)
+        v1 = matvect(p1)
+        alpha = rho/cublas.dotc(p1, v)
+        x += alpha*p
+        r -= alpha*v
+        r1 -= alpha*v1
+        iters += 1
+
+        if callback is not None:
+            callback(x)
+        r_norm = cublas.nrm2(r)
+        if r_norm <= atol or iters >= maxiter:
+            break
+        rho1 = rho
+
+    info = 0
+    if iters == maxiter and not (r_norm < atol):
+        info = iters
+
+    return x, info
