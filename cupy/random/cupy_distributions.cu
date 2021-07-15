@@ -9,14 +9,16 @@
 
 #include "cupy_distributions.cuh"
 
-
-struct rk_state {
-
+struct rk_basic {
 #ifdef CUPY_USE_BINOMIAL
     int has_binomial;
     int nsave, m;
     double psave, r, q, fm, p1, xm, xl, xr, c, laml, lamr, p2, p3, p4;
 #endif
+};
+
+struct rk_state {
+
     __device__ virtual uint32_t rk_int() {
         return  0;
     }
@@ -305,47 +307,47 @@ __device__ uint64_t rk_interval_64(rk_state* state, uint64_t  mx, uint64_t mask)
     return sampled;
 }
 
-__device__ int64_t rk_binomial_btpe(rk_state *state, long n, double p) {
+__device__ int64_t rk_binomial_btpe(rk_state *state, rk_basic *basic, long n, double p) {
     double r,q,fm,p1,xm,xl,xr,c,laml,lamr,p2,p3,p4;
     double a,u,v,s,F,rho,t,A,nrq,x1,x2,f1,f2,z,z2,w,w2,x;
     int m,y,k,i;
-    if (!(state->has_binomial) ||
-         (state->nsave != n) ||
-         (state->psave != p)) {
+    if (!(basic->has_binomial) ||
+         (basic->nsave != n) ||
+         (basic->psave != p)) {
         /* initialize */
-        state->nsave = n;
-        state->psave = p;
-        state->has_binomial = 1;
-        state->r = r = min(p, 1.0-p);
-        state->q = q = 1.0 - r;
-        state->fm = fm = n*r+r;
-        state->m = m = (long)floor(state->fm);
-        state->p1 = p1 = floor(2.195*sqrt(n*r*q)-4.6*q) + 0.5;
-        state->xm = xm = m + 0.5;
-        state->xl = xl = xm - p1;
-        state->xr = xr = xm + p1;
-        state->c = c = 0.134 + 20.5/(15.3 + m);
+        basic->nsave = n;
+        basic->psave = p;
+        basic->has_binomial = 1;
+        basic->r = r = min(p, 1.0-p);
+        basic->q = q = 1.0 - r;
+        basic->fm = fm = n*r+r;
+        basic->m = m = (long)floor(basic->fm);
+        basic->p1 = p1 = floor(2.195*sqrt(n*r*q)-4.6*q) + 0.5;
+        basic->xm = xm = m + 0.5;
+        basic->xl = xl = xm - p1;
+        basic->xr = xr = xm + p1;
+        basic->c = c = 0.134 + 20.5/(15.3 + m);
         a = (fm - xl)/(fm-xl*r);
-        state->laml = laml = a*(1.0 + a/2.0);
+        basic->laml = laml = a*(1.0 + a/2.0);
         a = (xr - fm)/(xr*q);
-        state->lamr = lamr = a*(1.0 + a/2.0);
-        state->p2 = p2 = p1*(1.0 + 2.0*c);
-        state->p3 = p3 = p2 + c/laml;
-        state->p4 = p4 = p3 + c/lamr;
+        basic->lamr = lamr = a*(1.0 + a/2.0);
+        basic->p2 = p2 = p1*(1.0 + 2.0*c);
+        basic->p3 = p3 = p2 + c/laml;
+        basic->p4 = p4 = p3 + c/lamr;
     } else {
-        r = state->r;
-        q = state->q;
-        fm = state->fm;
-        m = state->m;
-        p1 = state->p1;
-        xm = state->xm;
-        xl = state->xl;
-        xr = state->xr;
-        c = state->c;
-        laml = state->laml;
-        lamr = state->lamr;
-        p2 = state->p2;
-        p3 = state->p3;
+        r = basic->r;
+        q = basic->q;
+        fm = basic->fm;
+        m = basic->m;
+        p1 = basic->p1;
+        xm = basic->xm;
+        xl = basic->xl;
+        xr = basic->xr;
+        c = basic->c;
+        laml = basic->laml;
+        lamr = basic->lamr;
+        p2 = basic->p2;
+        p3 = basic->p3;
         p4 = state->p4;
     }
   /* sigh ... */
@@ -420,24 +422,24 @@ __device__ int64_t rk_binomial_btpe(rk_state *state, long n, double p) {
     return y;
 }
 
-__device__ int64_t rk_binomial_inversion(rk_state *state, int n, double p) {
+__device__ int64_t rk_binomial_inversion(rk_state *state, rk_basic *basic, int n, double p) {
     double q, qn, np, px, U;
     int X, bound;
-    if (!(state->has_binomial) ||
-         (state->nsave != n) ||
-         (state->psave != p)) {
-        state->nsave = n;
-        state->psave = p;
-        state->has_binomial = 1;
-        state->q = q = 1.0 - p;
-        state->r = qn = exp(n * log(q));
-        state->c = np = n*p;
-        state->m = bound = min((double)n, np + 10.0*sqrt(np*q + 1));
+    if (!(basic->has_binomial) ||
+         (basic->nsave != n) ||
+         (basic->psave != p)) {
+        basic->nsave = n;
+        basic->psave = p;
+        basic->has_binomial = 1;
+        basic->q = q = 1.0 - p;
+        basic->r = qn = exp(n * log(q));
+        basic->c = np = n*p;
+        basic->m = bound = min((double)n, np + 10.0*sqrt(np*q + 1));
     } else {
-        q = state->q;
-        qn = state->r;
-        np = state->c;
-        bound = state->m;
+        q = basic->q;
+        qn = basic->r;
+        np = basic->c;
+        bound = basic->m;
     }
     X = 0;
     px = qn;
@@ -456,20 +458,20 @@ __device__ int64_t rk_binomial_inversion(rk_state *state, int n, double p) {
     return X;
 }
 
-__device__ int64_t rk_binomial(rk_state *state, int n, double p) {
+__device__ int64_t rk_binomial(rk_state *state, rk_basic *basic, int n, double p) {
     double q;
     if (p <= 0.5) {
         if (p*n <= 30.0) {
-            return rk_binomial_inversion(state, n, p);
+            return rk_binomial_inversion(state, basic, n, p);
         } else {
-            return rk_binomial_btpe(state, n, p);
+            return rk_binomial_btpe(state, basic, n, p);
         }
     } else {
         q = 1.0-p;
         if (q*n <= 30.0) {
-            return n - rk_binomial_inversion(state, n, q);
+            return n - rk_binomial_inversion(state, basic, n, q);
         } else {
-            return n - rk_binomial_btpe(state, n, q);
+            return n - rk_binomial_btpe(state, basic, n, q);
         }
     }
 }
@@ -655,7 +657,7 @@ void standard_gamma(int generator, intptr_t state, intptr_t out, ssize_t size, i
     generator_dispatcher(generator, launcher, state, out, size, reinterpret_cast<int64_t*>(shape));
 }
 
-void binomial(int generator, intptr_t state, intptr_t out, ssize_t size, intptr_t stream, intptr_t n, double p) {
+void binomial(int generator, intptr_t state, intptr_t basic, intptr_t out, ssize_t size, intptr_t stream, intptr_t n, double p) {
     kernel_launcher<binomial_functor, int64_t> launcher(size, reinterpret_cast<cudaStream_t>(stream));
-    generator_dispatcher(generator, launcher, state, out, size, reinterpret_cast<int64_t*>(n), p);
+    generator_dispatcher(generator, launcher, state, basic, out, size, reinterpret_cast<int64_t*>(n), p);
 }

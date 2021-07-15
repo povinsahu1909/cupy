@@ -504,10 +504,35 @@ class Generator:
         cdef ndarray n_arr
         cdef ndarray p_arr
 
-        n = cupy.asarray(n)
-        p = cupy.asarray(p)
+        if not isinstance(n, ndarray):
+            if type(n) in (float, int):
+                n_a = ndarray((), numpy.float64)
+                n_a.fill(n)
+                n = n_a
+            else:
+                raise TypeError('n is required to be a cupy.ndarray'
+                                ' or a scalar')
+        else:
+            # Check if size is broadcastable to shape
+            # but size determines the output
+            n = n.astype('d', copy=False)
 
-        if size is None:
+        if not isinstance(p, ndarray):
+            if type(p) in (float, int):
+                p_a = ndarray((), numpy.float64)
+                p_a.fill(p)
+                p = p_a
+            else:
+                raise TypeError('p is required to be a cupy.ndarray'
+                                ' or a scalar')
+        else:
+            # Check if size is broadcastable to shape
+            # but size determines the output
+            p = p.astype('d', copy=False)
+
+        if size is not None and not isinstance(size, tuple):
+            size = (size,)
+        elif size is None:
             size = cupy.broadcast(n, p).shape
 
         y = ndarray(size if size is not None else (), numpy.int64)

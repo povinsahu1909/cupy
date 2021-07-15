@@ -75,7 +75,9 @@ class _cuRANDGenerator(BitGenerator):
         self._size = size
         cdef uint64_t b_size = self._type_size() * size
         self._state = cupy.zeros(b_size, dtype=numpy.int8)
+        self._basic = cupy.zeros(b_size, dtype=numpy.int8)
         ptr = self._state.data.ptr
+        ptr_basic = self._basic.data.ptr
         # Initialize the state
         init_curand(self.generator, ptr, self._seed, size)
 
@@ -109,6 +111,10 @@ class _cuRANDGenerator(BitGenerator):
     def state(self):
         self._check_device()
         return self._state.data.ptr
+
+    def basic(self):
+        self._check_device()
+        return self._basic.data.ptr
 
     def _state_size(self):
         return self._size
