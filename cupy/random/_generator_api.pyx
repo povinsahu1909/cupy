@@ -573,13 +573,24 @@ cdef void _launch_dist(bit_generator, func, out, args) except*:
     cdef ssize_t size = out.size
     cdef ndarray chunk
     cdef int generator = bit_generator.generator
+    cdef basic
+    if func == 'binomial':
+        basic_ptr = bit_generator.basic()
+        basic = <intptr_t>basic_ptr
 
     cdef bsize = bit_generator._state_size()
+
     if out.shape == () or bsize == 0:
-        func(generator, state, y_ptr, out.size, strm, *args)
+        if func == 'binomial':
+            func(generator, state, basic, y_ptr, out.size, strm, *args)
+        else:
+            func(generator, state, y_ptr, out.size, strm, *args)
     else:
         chunks = (out.size + bsize - 1) // bsize
         for i in range(chunks):
             chunk = out[i*bsize:]
             y_ptr = <intptr_t>chunk.data.ptr
-            func(generator, state, y_ptr, min(bsize, chunk.size), strm, *args)
+            if func == 'binomial':
+                func(generator, state, basic, y_ptr, min(bsize, chunk.size), strm, *args)
+            else:
+                func(generator, state, y_ptr, min(bsize, chunk.size), strm, *args)
