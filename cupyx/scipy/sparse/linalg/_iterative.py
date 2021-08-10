@@ -317,7 +317,8 @@ def bicg(A, b, x0=None, tol=1e-5, maxiter=None, M=None, callback=None,
     A, M, x, b = _make_system(A, M, x0, b)
     matvec = A.matvec
     psolve = M.matvec
-
+    rmatvec = A.rmatvec
+    rpsolve = M.rmatvec
     n = A.shape[0]
     if n == 0:
         return cupy.empty_like(b), 0
@@ -332,29 +333,36 @@ def bicg(A, b, x0=None, tol=1e-5, maxiter=None, M=None, callback=None,
         maxiter = n * 10
 
     r = b - matvec(x)
-    r1 = r
-    p = cupy.zeros((n, ), dtype=A.dtype)
-    p1 = cupy.zeros((n, ), dtype=A.dtype)
-    rho1 = 1
+    r1 = r.copy()
+    p = r.copy()
+    p1 = r.copy()
+    rho = cupy.dot(r, r)
     r_norm = cublas.nrm2(r)
     AT = cupy.transpose(A)
     matvect = AT.matvec
 
     iters = 0
     while True:
-        mr = psolve(r)
-        # rho = cupy.inner(r1, mr)
-        rho = cublas.dotc(r1, mr)
-        beta = rho/rho1
-        p = r + beta*p
-        p1 = r1 + beta*p1
-
         v = matvec(p)
-        v1 = matvect(p1)
-        alpha = rho/cublas.dotc(p1, v)
-        x += alpha*p
-        r -= alpha*v
-        r1 -= alpha*v1
+        v1 = rmatvec(p1)
+        q = cupy.dot(p1, v)
+        alpha = rho / q
+        x += alpha * p
+        r -= alpha * v
+        r1 -= alpha * v1
+
+        mr = psolve(r)
+        mr1 = rpsolve(r)
+        rho_new = cupy.dot(mr, r1)
+        beta = rho_new / rho
+        rho = rho_new
+        # p = r + beta*p
+        p *= beta
+        p += mr
+        # p1 = r1 + beta*p1
+        p1 *= beta
+        p1 += mr1
+
         iters += 1
 
         if callback is not None:
@@ -362,7 +370,6 @@ def bicg(A, b, x0=None, tol=1e-5, maxiter=None, M=None, callback=None,
         r_norm = cublas.nrm2(r)
         if r_norm <= atol or iters >= maxiter:
             break
-        rho1 = rho
 
     info = 0
     if iters == maxiter and not (r_norm < atol):
